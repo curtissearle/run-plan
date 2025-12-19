@@ -28,6 +28,8 @@ export default function PdfConfigurator({
   plan,
 }: PdfConfiguratorProps) {
   const { exportPlanSchema } = useTrainingSession();
+  const schema = exportPlanSchema();
+  const unit = schema?.settings?.unit || "km";
   const [config, setConfig] = useState<PdfConfig>({
     orientation: "portrait",
     title: "Your Training Plan",
@@ -47,7 +49,7 @@ export default function PdfConfigurator({
     setDownloadError(null);
     try {
       const pdf = await getPdf();
-      const doc = <PdfDocument plan={plan} config={config} />;
+      const doc = <PdfDocument plan={plan} config={config} unit={unit} />;
       const instance = pdf(doc);
       const blob = await instance.toBlob();
       const url = URL.createObjectURL(blob);
@@ -288,7 +290,7 @@ export default function PdfConfigurator({
                       style={{ border: "none" }}
                       showToolbar={false}
                     >
-                      <PdfDocument plan={plan} config={config} />
+                      <PdfDocument plan={plan} config={config} unit={unit} />
                     </PDFViewer>
                   </>
                 ) : (

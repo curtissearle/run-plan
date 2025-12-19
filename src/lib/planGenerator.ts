@@ -9,10 +9,12 @@ dayjs.extend(isoWeek);
 export interface Run {
   id?: string; // Unique identifier for drag and drop
   type: "Rest" | "Easy" | "Long" | "Interval" | "Tempo" | "Race" | "Strength";
-  distance?: number; // in km
+  measurementType?: "distance" | "time"; // Defaults to "distance" for backward compatibility
+  distance?: number; // Distance in the selected unit (km or miles)
   time?: number; // in minutes
   notes?: string;
   nickname?: string; // Optional nickname for the workout
+  description?: string; // Optional detailed breakdown of the run
 }
 
 export type Day = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
@@ -98,12 +100,12 @@ export const generatePlan = (inputs: FormValues): TrainingPlan => {
 
   const start = dayjs(todayDate);
   const end = dayjs(raceDate);
-  
+
   // Calculate total weeks needed to include the race date
   // We need to ensure the race week is included in the plan
-  const firstWeekStart = start.startOf('isoWeek');
-  const raceWeekStart = end.startOf('isoWeek');
-  const totalWeeks = raceWeekStart.diff(firstWeekStart, 'week') + 1;
+  const firstWeekStart = start.startOf("isoWeek");
+  const raceWeekStart = end.startOf("isoWeek");
+  const totalWeeks = raceWeekStart.diff(firstWeekStart, "week") + 1;
 
   // Handle edge cases
   if (totalWeeks <= 0) {

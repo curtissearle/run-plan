@@ -18,6 +18,8 @@ export default function Home() {
     setStep,
     generateAndSetPlan,
     updatePlan,
+    updateFormValues,
+    exportPlanSchema,
     resetSession,
     importPlanSchema,
   } = useTrainingSession();
@@ -139,7 +141,13 @@ export default function Home() {
                       </span>
                       <span className="flex flex-col">
                         <span className="font-medium">{label}</span>
-                        <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                        <span
+                          className={`hidden text-[11px] sm:inline ${
+                            isActive
+                              ? "text-primary-foreground/80"
+                              : "text-muted-foreground"
+                          }`}
+                        >
                           {description}
                         </span>
                       </span>
@@ -171,6 +179,32 @@ export default function Home() {
                 plan={plan}
                 onUpdatePlan={handleUpdatePlan}
                 summary={planSummary}
+                currentUnit={formValues?.unit || "km"}
+                onUnitChange={(newUnit, convertedPlan) => {
+                  if (formValues) {
+                    const updatedValues = { ...formValues, unit: newUnit };
+                    // Update form values with new unit
+                    updateFormValues(updatedValues);
+                    // Update plan with converted distances
+                    if (convertedPlan) {
+                      updatePlan(convertedPlan);
+                      // Update schema settings to reflect the new unit
+                      // We need to get the current schema and update its settings
+                      const currentSchema = exportPlanSchema();
+                      if (currentSchema) {
+                        const updatedSchema = {
+                          ...currentSchema,
+                          settings: {
+                            ...currentSchema.settings,
+                            unit: newUnit,
+                          },
+                          updatedAt: new Date().toISOString(),
+                        };
+                        importPlanSchema(updatedSchema);
+                      }
+                    }
+                  }
+                }}
               />
               <div className="flex flex-col items-center justify-between gap-4 pt-4 sm:flex-row">
                 <div className="flex gap-3">

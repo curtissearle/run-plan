@@ -3,6 +3,7 @@
 import { TrainingPlan, Week, Run, Day } from "@/lib/planGenerator";
 import { useState, useEffect, useMemo } from "react";
 import React from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragEndEvent,
@@ -31,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { kmToMiles, milesToKm } from "@/lib/utils";
 
 interface TrainingTableProps {
   plan: TrainingPlan;
@@ -40,6 +42,8 @@ interface TrainingTableProps {
     raceDate: string | null;
     raceDistance: string | null;
   } | null;
+  currentUnit?: "km" | "miles";
+  onUnitChange?: (unit: "km" | "miles", convertedPlan: TrainingPlan) => void;
 }
 
 const runTypeColors: Record<Run["type"], string> = {
@@ -82,11 +86,17 @@ interface DraggableWorkoutProps {
   weekIndex: number;
   day: Day;
   canRemove: boolean;
+  currentUnit: "km" | "miles";
   onUpdateRun: (
     weekIndex: number,
     day: Day,
     runIndex: number,
-    newDistance: number
+    updates: {
+      measurementType?: "distance" | "time";
+      distance?: number;
+      time?: number;
+      description?: string;
+    }
   ) => void;
   onUpdateNickname: (
     weekIndex: number,
@@ -95,6 +105,9 @@ interface DraggableWorkoutProps {
     nickname: string
   ) => void;
   onRemoveRun: (weekIndex: number, day: Day, runIndex: number) => void;
+  editingDescriptionId: string | null;
+  onStartEditingDescription: (id: string) => void;
+  onStopEditingDescription: () => void;
 }
 
 const DraggableWorkout = ({
@@ -103,12 +116,29 @@ const DraggableWorkout = ({
   weekIndex,
   day,
   canRemove,
+  currentUnit,
   onUpdateRun,
   onUpdateNickname,
   onRemoveRun,
+  editingDescriptionId,
+  onStartEditingDescription,
+  onStopEditingDescription,
 }: DraggableWorkoutProps) => {
   const [isEditingNickname, setIsEditingNickname] = React.useState(false);
   const [nicknameValue, setNicknameValue] = React.useState(run.nickname || "");
+  const [descriptionValue, setDescriptionValue] = React.useState(run.description || "");
+  
+  // Determine measurement type - default to "distance" for backward compatibility
+  const measurementType = run.measurementType || (run.distance !== undefined ? "distance" : run.time !== undefined ? "time" : "distance");
+  
+  const descriptionId = run.id || `${weekIndex}-${day}-${runIndex}`;
+  const isEditingDescription = editingDescriptionId === descriptionId;
+  
+  React.useEffect(() => {
+    if (isEditingDescription) {
+      setDescriptionValue(run.description || "");
+    }
+  }, [isEditingDescription, run.description]);
 
   const {
     attributes,
@@ -146,12 +176,31 @@ const DraggableWorkout = ({
     setIsEditingNickname(false);
   };
 
+  const handleDescriptionSave = () => {
+    onUpdateRun(weekIndex, day, runIndex, { description: descriptionValue });
+    onStopEditingDescription();
+  };
+
+  const handleDescriptionCancel = () => {
+    setDescriptionValue(run.description || "");
+    onStopEditingDescription();
+  };
+
+  const handleMeasurementTypeChange = (newType: "distance" | "time") => {
+    onUpdateRun(weekIndex, day, runIndex, { 
+      measurementType: newType,
+      // Clear the opposite field
+      distance: newType === "distance" ? run.distance : undefined,
+      time: newType === "time" ? run.time : undefined,
+    });
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className={`w-full p-1.5 sm:p-2 rounded-lg text-center border ${colorClass} min-h-[60px] flex flex-col justify-center relative transition ${
+      className={`w-full p-2 rounded-lg text-center border ${colorClass} min-h-[100px] flex flex-col relative transition ${
         isDragging ? "z-50 scale-105 shadow-xl" : "hover:scale-[1.02]"
       }`}
     >
@@ -200,7 +249,7 @@ const DraggableWorkout = ({
           </svg>
         </Button>
       )}
-      <div className="text-[10px] sm:text-xs font-semibold mb-1">
+      <div className="text-xs font-semibold mb-2">
         <div>{run.type}</div>
         {isEditingNickname ? (
           <div className="mt-1" onClick={(e) => e.stopPropagation()}>
@@ -208,7 +257,7 @@ const DraggableWorkout = ({
               type="text"
               value={nicknameValue}
               onChange={(e) => setNicknameValue(e.target.value)}
-              className="w-full text-xs text-center border border-input rounded bg-background px-1 py-0.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full text-[10px] text-center border border-input rounded bg-background px-1 py-0.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               placeholder="Nickname"
               autoFocus
               onKeyDown={(e) => {
@@ -223,7 +272,7 @@ const DraggableWorkout = ({
               <Button
                 onClick={handleNicknameSave}
                 size="sm"
-                className="h-6 px-2 text-xs bg-green-600 text-white hover:bg-green-500"
+                className="h-5 px-2 text-[10px] bg-green-600 text-white hover:bg-green-500"
                 aria-label="Save nickname"
               >
                 ✓
@@ -232,7 +281,7 @@ const DraggableWorkout = ({
                 onClick={handleNicknameCancel}
                 variant="secondary"
                 size="sm"
-                className="h-6 px-2 text-xs"
+                className="h-5 px-2 text-[10px]"
                 aria-label="Cancel"
               >
                 ✕
@@ -241,7 +290,7 @@ const DraggableWorkout = ({
           </div>
         ) : (
           <button
-            className="text-xs text-muted-foreground hover:text-foreground transition cursor-pointer mt-0.5"
+            className="text-[10px] text-muted-foreground hover:text-foreground transition cursor-pointer mt-0.5 w-full"
             onClick={(e) => {
               e.stopPropagation();
               setIsEditingNickname(true);
@@ -252,27 +301,412 @@ const DraggableWorkout = ({
           </button>
         )}
       </div>
-      <input
-        type="number"
-        value={run.distance && run.distance > 0 ? run.distance : ""}
-        onChange={(e) => {
-          const newDistance = Number(e.target.value);
-          onUpdateRun(
-            weekIndex,
-            day,
-            runIndex,
-            isNaN(newDistance) || e.target.value === "" ? 0 : newDistance
-          );
+      {run.type !== "Strength" ? (
+        <div className="space-y-1.5 mb-2" onClick={(e) => e.stopPropagation()}>
+          {/* Measurement Type Selector */}
+          <select
+            value={measurementType}
+            onChange={(e) => handleMeasurementTypeChange(e.target.value as "distance" | "time")}
+            className="w-full text-[10px] border border-input rounded-md bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <option value="distance">Distance</option>
+            <option value="time">Time (Min)</option>
+          </select>
+          
+          {/* Distance or Time Input */}
+          <div className="flex items-center justify-center gap-1">
+            {measurementType === "distance" ? (
+              <>
+                <input
+                  type="number"
+                  value={run.distance && run.distance > 0 ? run.distance : ""}
+                  onChange={(e) => {
+                    const newDistance = Number(e.target.value);
+                    onUpdateRun(weekIndex, day, runIndex, {
+                      distance: isNaN(newDistance) || e.target.value === "" ? 0 : newDistance,
+                    });
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full bg-transparent text-center font-bold text-sm text-foreground p-0 border-none focus:outline-none focus:ring-1 focus:ring-ring rounded"
+                  min="0"
+                  step="0.1"
+                  placeholder="0"
+                  aria-label={`Distance in ${currentUnit === "km" ? "kilometers" : "miles"}`}
+                />
+                <span className="text-[10px] text-muted-foreground">
+                  {currentUnit === "km" ? "km" : "mi"}
+                </span>
+              </>
+            ) : (
+              <>
+                <input
+                  type="number"
+                  value={run.time && run.time > 0 ? run.time : ""}
+                  onChange={(e) => {
+                    const newTime = Number(e.target.value);
+                    onUpdateRun(weekIndex, day, runIndex, {
+                      time: isNaN(newTime) || e.target.value === "" ? 0 : newTime,
+                    });
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full bg-transparent text-center font-bold text-sm text-foreground p-0 border-none focus:outline-none focus:ring-1 focus:ring-ring rounded"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  aria-label="Time in minutes"
+                />
+                <span className="text-[10px] text-muted-foreground">
+                  MIN
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mb-2 min-h-[20px]" />
+      )}
+      
+      {/* Description Field */}
+      <div className="mt-auto" onClick={(e) => e.stopPropagation()}>
+        <button
+          className="w-full text-[10px] text-muted-foreground hover:text-foreground transition cursor-pointer text-center px-2 py-1.5 rounded-md border border-border/50 bg-muted/30 hover:bg-muted/50 truncate"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStartEditingDescription(descriptionId);
+          }}
+          aria-label={run.description ? "Edit description" : "Add description"}
+          title={run.description || "Add description"}
+        >
+          {run.description ? (
+            <span className="block truncate">{run.description}</span>
+          ) : (
+            <span>Add Breakdown...</span>
+          )}
+        </button>
+      </div>
+      
+      {/* Description Editor Modal */}
+      {isEditingDescription && (
+        <DescriptionEditor
+          value={descriptionValue}
+          onChange={setDescriptionValue}
+          onSave={handleDescriptionSave}
+          onCancel={handleDescriptionCancel}
+        />
+      )}
+    </div>
+  );
+};
+
+interface DescriptionEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}
+
+const DescriptionEditor = ({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+}: DescriptionEditorProps) => {
+  const [mounted, setMounted] = React.useState(false);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (mounted && textareaRef.current) {
+      // Auto-resize textarea based on content
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 400)}px`;
+    }
+  }, [value, mounted]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-[9998] bg-black/20 backdrop-blur-sm"
+        onClick={onCancel}
+      />
+      {/* Editor */}
+      <div 
+        className="fixed z-[9999] bg-white dark:bg-card border border-border rounded-lg shadow-2xl p-4 min-w-[400px] max-w-[600px]"
+        style={{
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
         }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full bg-transparent text-center font-bold text-xs sm:text-sm text-foreground p-0 border-none focus:outline-none focus:ring-1 focus:ring-ring rounded"
-        min="0"
-        step="1"
-        placeholder="0"
-        aria-label="Distance in kilometers"
+      >
+        <div className="text-sm font-semibold mb-3 text-foreground">
+          Edit Description:
+        </div>
+        
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full text-sm border border-input rounded-md bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none overflow-y-auto"
+          placeholder="Run breakdown (e.g., 10-min easy, 5-min tempo x 3)"
+          rows={6}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              onSave();
+            } else if (e.key === "Escape") {
+              onCancel();
+            }
+          }}
+          style={{ maxHeight: "400px" }}
+        />
+        
+        <div className="flex gap-2 mt-3 justify-end">
+          <Button
+            onClick={onSave}
+            size="sm"
+            className="h-8 px-4 text-sm bg-green-600 text-white hover:bg-green-500 font-medium"
+          >
+            Save
+          </Button>
+          <Button
+            onClick={onCancel}
+            variant="outline"
+            size="sm"
+            className="h-8 px-4 text-sm border-border"
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+};
+
+interface WorkoutModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (workout: {
+    type: Run["type"];
+    nickname?: string;
+    measurementType?: "distance" | "time";
+    distance?: number;
+    time?: number;
+    description?: string;
+  }) => void;
+  initialRun?: Run | null;
+  currentUnit: "km" | "miles";
+  position?: "top" | "bottom";
+}
+
+const WorkoutModal = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  initialRun,
+  currentUnit,
+  position = "bottom",
+}: WorkoutModalProps) => {
+  const [workoutType, setWorkoutType] = React.useState<Run["type"]>(
+    initialRun?.type || "Easy"
+  );
+  const [nickname, setNickname] = React.useState(initialRun?.nickname || "");
+  const [measurementType, setMeasurementType] = React.useState<"distance" | "time">(
+    initialRun?.measurementType || (initialRun?.distance !== undefined ? "distance" : initialRun?.time !== undefined ? "time" : "distance")
+  );
+  const [distance, setDistance] = React.useState<number | undefined>(
+    initialRun?.distance
+  );
+  const [time, setTime] = React.useState<number | undefined>(initialRun?.time);
+  const [description, setDescription] = React.useState(initialRun?.description || "");
+
+  React.useEffect(() => {
+    if (initialRun) {
+      setWorkoutType(initialRun.type);
+      setNickname(initialRun.nickname || "");
+      setMeasurementType(
+        initialRun.measurementType || (initialRun.distance !== undefined ? "distance" : initialRun.time !== undefined ? "time" : "distance")
+      );
+      setDistance(initialRun.distance);
+      setTime(initialRun.time);
+      setDescription(initialRun.description || "");
+    } else {
+      // Reset for new workout
+      setWorkoutType("Easy");
+      setNickname("");
+      setMeasurementType("distance");
+      setDistance(undefined);
+      setTime(undefined);
+      setDescription("");
+    }
+  }, [initialRun, isOpen]);
+
+  const workoutTypes: Run["type"][] = [
+    "Easy",
+    "Long",
+    "Tempo",
+    "Interval",
+    "Strength",
+    "Race",
+  ];
+
+  const handleSubmit = () => {
+    onSubmit({
+      type: workoutType,
+      nickname: nickname || undefined,
+      measurementType,
+      distance: measurementType === "distance" ? distance : undefined,
+      time: measurementType === "time" ? time : undefined,
+      description: description || undefined,
+    });
+    onClose();
+  };
+
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-[9998] bg-black/20 backdrop-blur-sm"
+        onClick={onClose}
       />
-      <span className="text-[10px] sm:text-xs text-muted-foreground">km</span>
-    </div>
+      {/* Modal */}
+      <div 
+        className="fixed z-[9999] bg-white dark:bg-card border border-border rounded-lg shadow-2xl p-4 min-w-[320px] max-w-[400px]"
+        style={{
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-sm font-semibold mb-3 text-foreground">
+          {initialRun ? "Edit Workout:" : "Add Workout:"}
+        </div>
+        
+        <div className="space-y-3">
+          {/* Type and Nickname */}
+          <div className="flex gap-2">
+            <select
+              value={workoutType}
+              onChange={(e) => setWorkoutType(e.target.value as Run["type"])}
+              className="flex-1 text-sm border border-input rounded-md bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+            >
+              {workoutTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              placeholder="Nickname (optional)"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              className="flex-1 text-sm border border-input rounded-md bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring placeholder:text-muted-foreground"
+            />
+          </div>
+
+          {/* Measurement Type and Value */}
+          {workoutType !== "Strength" && (
+            <>
+              <select
+                value={measurementType}
+                onChange={(e) => {
+                  const newType = e.target.value as "distance" | "time";
+                  setMeasurementType(newType);
+                  if (newType === "distance") {
+                    setTime(undefined);
+                  } else {
+                    setDistance(undefined);
+                  }
+                }}
+                className="w-full text-sm border border-input rounded-md bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+              >
+                <option value="distance">Distance</option>
+                <option value="time">Time (Minutes)</option>
+              </select>
+              
+              {measurementType === "distance" ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={distance || ""}
+                    onChange={(e) => setDistance(e.target.value ? Number(e.target.value) : undefined)}
+                    className="flex-1 text-sm border border-input rounded-md bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+                    min="0"
+                    step="0.1"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {currentUnit === "km" ? "km" : "mi"}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={time || ""}
+                    onChange={(e) => setTime(e.target.value ? Number(e.target.value) : undefined)}
+                    className="flex-1 text-sm border border-input rounded-md bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+                    min="0"
+                    step="1"
+                  />
+                  <span className="text-sm text-muted-foreground">MIN</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Description */}
+          <textarea
+            placeholder="Run breakdown (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full text-sm border border-input rounded-md bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring placeholder:text-muted-foreground resize-none"
+            rows={2}
+          />
+
+          {/* Buttons */}
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={handleSubmit}
+              size="sm"
+              className="flex-1 text-sm bg-green-600 text-white hover:bg-green-500 font-medium"
+            >
+              {initialRun ? "Update" : "Add"}
+            </Button>
+            <Button
+              onClick={onClose}
+              variant="outline"
+              size="sm"
+              className="flex-1 text-sm border-border"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body
   );
 };
 
@@ -280,11 +714,17 @@ interface RunCellProps {
   week: Week;
   day: Day;
   weekIndex: number;
+  currentUnit: "km" | "miles";
   onUpdateRun: (
     weekIndex: number,
     day: Day,
     runIndex: number,
-    newDistance: number
+    updates: {
+      measurementType?: "distance" | "time";
+      distance?: number;
+      time?: number;
+      description?: string;
+    }
   ) => void;
   onUpdateNickname: (
     weekIndex: number,
@@ -295,37 +735,46 @@ interface RunCellProps {
   onAddRun: (
     weekIndex: number,
     day: Day,
-    workoutType?: Run["type"],
-    nickname?: string
+    workout: {
+      type: Run["type"];
+      nickname?: string;
+      measurementType?: "distance" | "time";
+      distance?: number;
+      time?: number;
+      description?: string;
+    }
   ) => void;
   onRemoveRun: (weekIndex: number, day: Day, runIndex: number) => void;
+  modalId: string;
+  openModalId: string | null;
+  onOpenModal: (id: string) => void;
+  onCloseModal: () => void;
+  editingDescriptionId: string | null;
+  onStartEditingDescription: (id: string) => void;
+  onStopEditingDescription: () => void;
 }
 
 const RunCell = ({
   week,
   day,
   weekIndex,
+  currentUnit,
   onUpdateRun,
   onUpdateNickname,
   onAddRun,
   onRemoveRun,
+  modalId,
+  openModalId,
+  onOpenModal,
+  onCloseModal,
+  editingDescriptionId,
+  onStartEditingDescription,
+  onStopEditingDescription,
 }: RunCellProps) => {
   const runs = Array.isArray(week.days[day])
     ? (week.days[day].filter(Boolean) as Run[])
     : [];
-  const [showWorkoutSelector, setShowWorkoutSelector] = React.useState(false);
-  const [newWorkoutType, setNewWorkoutType] =
-    React.useState<Run["type"]>("Easy");
-  const [newWorkoutNickname, setNewWorkoutNickname] = React.useState("");
-
-  const workoutTypes: Run["type"][] = [
-    "Easy",
-    "Long",
-    "Tempo",
-    "Interval",
-    "Strength",
-    "Race",
-  ];
+  const showWorkoutModal = openModalId === modalId;
 
   // Always call useDroppable, regardless of runs
   const emptyDroppable = useDroppable({
@@ -345,11 +794,17 @@ const RunCell = ({
     },
   });
 
-  const handleAddWorkout = () => {
-    onAddRun(weekIndex, day, newWorkoutType, newWorkoutNickname || undefined);
-    setShowWorkoutSelector(false);
-    setNewWorkoutType("Easy");
-    setNewWorkoutNickname("");
+  const handleWorkoutSubmit = (workout: {
+    type: Run["type"];
+    nickname?: string;
+    measurementType?: "distance" | "time";
+    distance?: number;
+    time?: number;
+    description?: string;
+  }) => {
+    // Add new run
+    onAddRun(weekIndex, day, workout);
+    onCloseModal();
   };
 
   // Rest day - no runs scheduled
@@ -367,56 +822,27 @@ const RunCell = ({
         <span className="text-sm text-muted-foreground mb-2">
           {isOver ? "Drop workout here" : "Rest"}
         </span>
-        {!showWorkoutSelector ? (
+        <div className="relative">
           <Button
-            onClick={() => setShowWorkoutSelector(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenModal(modalId);
+            }}
             size="sm"
             className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-500"
           >
             + Add Workout
           </Button>
-        ) : (
-          <div className="absolute z-10 bg-card border border-border rounded-lg shadow-xl p-3 min-w-[180px]">
-            <div className="text-xs font-semibold mb-2 text-foreground">
-              Add Workout:
-            </div>
-            <select
-              value={newWorkoutType}
-              onChange={(e) => setNewWorkoutType(e.target.value as Run["type"])}
-              className="w-full mb-2 text-xs border border-input rounded bg-background text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              {workoutTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-            <input
-              type="text"
-              placeholder="Nickname (optional)"
-              value={newWorkoutNickname}
-              onChange={(e) => setNewWorkoutNickname(e.target.value)}
-              className="w-full mb-2 text-xs border border-input rounded bg-background text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+          {showWorkoutModal && (
+            <WorkoutModal
+              isOpen={true}
+              onClose={onCloseModal}
+              onSubmit={handleWorkoutSubmit}
+              currentUnit={currentUnit}
+              position="top"
             />
-            <div className="flex gap-1">
-              <Button
-                onClick={handleAddWorkout}
-                size="sm"
-                className="flex-1 text-xs bg-green-600 text-white hover:bg-green-500"
-              >
-                Add
-              </Button>
-              <Button
-                onClick={() => setShowWorkoutSelector(false)}
-                variant="secondary"
-                size="sm"
-                className="flex-1 text-xs"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     );
   }
@@ -443,61 +869,36 @@ const RunCell = ({
             weekIndex={weekIndex}
             day={day}
             canRemove={true}
+            currentUnit={currentUnit}
             onUpdateRun={onUpdateRun}
             onUpdateNickname={onUpdateNickname}
             onRemoveRun={onRemoveRun}
+            editingDescriptionId={editingDescriptionId}
+            onStartEditingDescription={onStartEditingDescription}
+            onStopEditingDescription={onStopEditingDescription}
           />
         ))}
-        {!showWorkoutSelector ? (
+        <div className="relative">
           <Button
-            onClick={() => setShowWorkoutSelector(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenModal(modalId);
+            }}
             size="sm"
             className="w-full text-xs bg-green-600 text-white hover:bg-green-500"
           >
             + Add Workout
           </Button>
-        ) : (
-          <div className="absolute z-10 bg-card border border-border rounded-lg shadow-xl p-3 min-w-[180px] top-full left-0 mt-1">
-            <div className="text-xs font-semibold mb-2 text-foreground">
-              Add Workout:
-            </div>
-            <select
-              value={newWorkoutType}
-              onChange={(e) => setNewWorkoutType(e.target.value as Run["type"])}
-              className="w-full mb-2 text-xs border border-input rounded bg-background text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              {workoutTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-            <input
-              type="text"
-              placeholder="Nickname (optional)"
-              value={newWorkoutNickname}
-              onChange={(e) => setNewWorkoutNickname(e.target.value)}
-              className="w-full mb-2 text-xs border border-input rounded bg-background text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+          {showWorkoutModal && (
+            <WorkoutModal
+              isOpen={true}
+              onClose={onCloseModal}
+              onSubmit={handleWorkoutSubmit}
+              currentUnit={currentUnit}
+              position="bottom"
             />
-            <div className="flex gap-1">
-              <Button
-                onClick={handleAddWorkout}
-                size="sm"
-                className="flex-1 text-xs bg-green-600 text-white hover:bg-green-500"
-              >
-                Add
-              </Button>
-              <Button
-                onClick={() => setShowWorkoutSelector(false)}
-                variant="secondary"
-                size="sm"
-                className="flex-1 text-xs"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </SortableContext>
   );
@@ -507,9 +908,68 @@ export default function TrainingTable({
   plan,
   onUpdatePlan,
   summary,
+  currentUnit = "km",
+  onUnitChange,
 }: TrainingTableProps) {
   const [weeks, setWeeks] = useState<Week[]>(plan.weeks);
   const [activeRun, setActiveRun] = useState<Run | null>(null);
+  const [openModalId, setOpenModalId] = useState<string | null>(null);
+  const [editingDescriptionId, setEditingDescriptionId] = useState<string | null>(null);
+
+  const handleUnitToggle = () => {
+    if (!onUnitChange) return;
+    
+    const newUnit = currentUnit === "km" ? "miles" : "km";
+    
+    // Convert all distances in the plan
+    const convertedWeeks = weeks.map((week) => {
+      const convertedDays: Record<Day, Run[]> = {
+        Mon: [],
+        Tue: [],
+        Wed: [],
+        Thu: [],
+        Fri: [],
+        Sat: [],
+        Sun: [],
+      };
+      
+      let newWeeklyTotal = 0;
+      
+      Object.entries(week.days).forEach(([day, runs]) => {
+        const dayKey = day as Day;
+        convertedDays[dayKey] = runs.map((run) => {
+          if (!run.distance) return run;
+          
+          let convertedDistance: number;
+          if (currentUnit === "km" && newUnit === "miles") {
+            convertedDistance = kmToMiles(run.distance);
+          } else if (currentUnit === "miles" && newUnit === "km") {
+            convertedDistance = milesToKm(run.distance);
+          } else {
+            convertedDistance = run.distance;
+          }
+          
+          newWeeklyTotal += convertedDistance;
+          
+          return {
+            ...run,
+            distance: Math.round(convertedDistance * 10) / 10,
+          };
+        });
+      });
+      
+      return {
+        ...week,
+        days: convertedDays,
+        weeklyTotal: Math.round(newWeeklyTotal),
+      };
+    });
+    
+    const convertedPlan = { ...plan, weeks: convertedWeeks };
+    setWeeks(convertedWeeks);
+    onUpdatePlan(convertedPlan);
+    onUnitChange(newUnit, convertedPlan);
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -534,7 +994,12 @@ export default function TrainingTable({
     weekIndex: number,
     day: Day,
     runIndex: number,
-    newDistance: number
+    updates: {
+      measurementType?: "distance" | "time";
+      distance?: number;
+      time?: number;
+      description?: string;
+    }
   ) => {
     const updatedWeeks = weeks.map((week, index) => {
       if (index === weekIndex) {
@@ -542,7 +1007,32 @@ export default function TrainingTable({
         const runs = [...updatedWeek.days[day]];
 
         if (runs[runIndex]) {
-          runs[runIndex] = { ...runs[runIndex], distance: newDistance };
+          const updatedRun = { ...runs[runIndex] };
+          
+          // Handle measurement type change - clear the opposite field
+          if (updates.measurementType !== undefined) {
+            updatedRun.measurementType = updates.measurementType;
+            if (updates.measurementType === "distance") {
+              updatedRun.time = undefined;
+            } else if (updates.measurementType === "time") {
+              updatedRun.distance = undefined;
+            }
+          }
+          
+          // Update distance or time
+          if (updates.distance !== undefined) {
+            updatedRun.distance = updates.distance;
+          }
+          if (updates.time !== undefined) {
+            updatedRun.time = updates.time;
+          }
+          
+          // Update description
+          if (updates.description !== undefined) {
+            updatedRun.description = updates.description;
+          }
+          
+          runs[runIndex] = updatedRun;
           updatedWeek.days[day] = runs;
           return recalculateWeeklyTotal(updatedWeek);
         }
@@ -587,22 +1077,34 @@ export default function TrainingTable({
   const handleAddRun = (
     weekIndex: number,
     day: Day,
-    workoutType: Run["type"] = "Easy",
-    nickname?: string
+    workout: {
+      type: Run["type"];
+      nickname?: string;
+      measurementType?: "distance" | "time";
+      distance?: number;
+      time?: number;
+      description?: string;
+    }
   ) => {
     const updatedWeeks = weeks.map((week, index) => {
       if (index === weekIndex) {
         const updatedWeek = { ...week };
         const runs = [...updatedWeek.days[day]];
 
-        const defaultDistance = workoutType === "Strength" ? 0 : 5;
+        const measurementType = workout.measurementType || "distance";
+        const defaultDistance = workout.type === "Strength" ? 0 : workout.distance || 5;
+        const defaultTime = workout.time || (measurementType === "time" ? 30 : undefined);
+
         runs.push({
-          id: `${weekIndex}-${day}-${workoutType}-${Math.random()
+          id: `${weekIndex}-${day}-${workout.type}-${Math.random()
             .toString(36)
             .substr(2, 9)}`,
-          type: workoutType,
-          distance: defaultDistance,
-          nickname: nickname,
+          type: workout.type,
+          measurementType,
+          distance: measurementType === "distance" ? defaultDistance : undefined,
+          time: measurementType === "time" ? defaultTime : undefined,
+          nickname: workout.nickname,
+          description: workout.description,
         });
         updatedWeek.days[day] = runs;
 
@@ -838,7 +1340,7 @@ export default function TrainingTable({
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Peak week:</span>
                   <span className="font-semibold text-foreground">
-                    {peakWeek.weeklyTotal} km
+                    {peakWeek.weeklyTotal} {currentUnit === "km" ? "km" : "mi"}
                   </span>
                 </div>
               )}
@@ -876,6 +1378,17 @@ export default function TrainingTable({
                 <span className="text-xs font-medium">{type}</span>
               </div>
             ))}
+          {onUnitChange && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleUnitToggle}
+              className="ml-auto text-xs"
+            >
+              Switch to {currentUnit === "km" ? "Miles" : "KM"}
+            </Button>
+          )}
         </div>
 
         {/* Training Table */}
@@ -929,16 +1442,24 @@ export default function TrainingTable({
                           week={week}
                           day={day}
                           weekIndex={weekIndex}
+                          currentUnit={currentUnit}
                           onUpdateRun={handleUpdateRun}
                           onUpdateNickname={handleUpdateNickname}
                           onAddRun={handleAddRun}
                           onRemoveRun={handleRemoveRun}
+                          modalId={`${weekIndex}-${day}`}
+                          openModalId={openModalId}
+                          onOpenModal={setOpenModalId}
+                          onCloseModal={() => setOpenModalId(null)}
+                          editingDescriptionId={editingDescriptionId}
+                          onStartEditingDescription={setEditingDescriptionId}
+                          onStopEditingDescription={() => setEditingDescriptionId(null)}
                         />
                       </TableCell>
                     ))}
                     <TableCell className="p-2 sm:p-3 text-center font-bold text-sm sm:text-base">
                       <div className="flex items-center justify-center h-[70px]">
-                        {week.weeklyTotal}
+                        {week.weeklyTotal} {currentUnit === "km" ? "km" : "mi"}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -963,9 +1484,17 @@ export default function TrainingTable({
                   </span>
                 )}
               </span>
-              <span className="text-sm font-bold text-center">
-                {activeRun.distance || 0}km
-              </span>
+              {activeRun.type !== "Strength" && (
+                <span className="text-sm font-bold text-center">
+                  {(() => {
+                    const measurementType = activeRun.measurementType || (activeRun.distance !== undefined ? "distance" : activeRun.time !== undefined ? "time" : "distance");
+                    if (measurementType === "time") {
+                      return `${activeRun.time || 0} MIN`;
+                    }
+                    return `${activeRun.distance || 0}${currentUnit === "km" ? "km" : "mi"}`;
+                  })()}
+                </span>
+              )}
             </div>
           ) : null}
         </DragOverlay>

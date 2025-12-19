@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { useTrainingSession } from "@/lib/useTrainingSession";
 import { TrainingPlanSchema, validateSchema } from "@/lib/planSchema";
+import { kmToMiles, milesToKm } from "@/lib/utils";
 
 const trainingDaySchema = z.object({
   day: z.string(),
@@ -47,6 +48,7 @@ const formSchema = z
       .number()
       .positive("Distance must be positive")
       .optional(),
+    unit: z.enum(["km", "miles"]),
     trainingDays: z
       .array(trainingDaySchema)
       .min(1, "Select at least one training day"),
@@ -106,6 +108,7 @@ export default function InputForm({ onSubmit, initialValues, onImport }: InputFo
       todayDate: new Date().toISOString().split("T")[0],
       raceDate: "",
       raceDistance: "",
+      unit: "km",
       trainingDays: [],
     },
   });
@@ -127,11 +130,30 @@ export default function InputForm({ onSubmit, initialValues, onImport }: InputFo
     name: "raceDistance",
   });
 
+  const watchedUnit = useWatch({
+    control: form.control,
+    name: "unit",
+    defaultValue: "km",
+  });
+
+  const watchedCustomRaceDistance = useWatch({
+    control: form.control,
+    name: "customRaceDistance",
+  });
+
   const watchedTrainingDays = useWatch({
     control: form.control,
     name: "trainingDays",
     defaultValue: [],
   });
+
+  // Handle unit conversion for customRaceDistance
+  useEffect(() => {
+    if (watchedRaceDistance === "custom" && watchedCustomRaceDistance) {
+      // This effect will handle conversion when unit changes
+      // The actual conversion will be handled in the unit change handler
+    }
+  }, [watchedUnit, watchedRaceDistance, watchedCustomRaceDistance]);
 
   const handleDayChange = (checked: boolean, day: string) => {
     const currentDays = form.getValues("trainingDays");
@@ -335,7 +357,7 @@ export default function InputForm({ onSubmit, initialValues, onImport }: InputFo
                             <SelectItem value="10k">10K</SelectItem>
                             <SelectItem value="half">Half marathon</SelectItem>
                             <SelectItem value="full">Full marathon</SelectItem>
-                            <SelectItem value="custom">Custom (km)</SelectItem>
+                            <SelectItem value="custom">Custom</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (
@@ -345,6 +367,52 @@ export default function InputForm({ onSubmit, initialValues, onImport }: InputFo
                       )}
                     </FormControl>
 
+                    <FormField
+                      control={form.control}
+                      name="unit"
+                      render={({ field: unitField }) => (
+                        <FormControl>
+                          {isMounted ? (
+                            <Select
+                              onValueChange={(newUnit) => {
+                                const oldUnit = unitField.value || "km";
+                                unitField.onChange(newUnit);
+                                
+                                // Convert customRaceDistance if it exists
+                                if (watchedRaceDistance === "custom" && watchedCustomRaceDistance) {
+                                  const currentDistance = watchedCustomRaceDistance;
+                                  let convertedDistance: number;
+                                  
+                                  if (oldUnit === "km" && newUnit === "miles") {
+                                    convertedDistance = kmToMiles(currentDistance);
+                                  } else if (oldUnit === "miles" && newUnit === "km") {
+                                    convertedDistance = milesToKm(currentDistance);
+                                  } else {
+                                    convertedDistance = currentDistance;
+                                  }
+                                  
+                                  form.setValue("customRaceDistance", Math.round(convertedDistance * 10) / 10);
+                                }
+                              }}
+                              value={unitField.value || "km"}
+                            >
+                              <SelectTrigger className="w-full sm:w-[120px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="km">KM</SelectItem>
+                                <SelectItem value="miles">Miles</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm text-muted-foreground">
+                              KM
+                            </div>
+                          )}
+                        </FormControl>
+                      )}
+                    />
+
                     {watchedRaceDistance === "custom" && (
                       <FormField
                         control={form.control}
@@ -353,7 +421,7 @@ export default function InputForm({ onSubmit, initialValues, onImport }: InputFo
                           <FormControl>
                             <Input
                               type="number"
-                              placeholder="Distance in km"
+                              placeholder={`Distance in ${watchedUnit === "km" ? "km" : "miles"}`}
                               value={customField.value ?? ""}
                               onChange={(e) =>
                                 customField.onChange(
@@ -374,7 +442,7 @@ export default function InputForm({ onSubmit, initialValues, onImport }: InputFo
             />
 
             <p className="text-[11px] text-muted-foreground">
-              Choose a standard race or specify your own distance in kilometers.
+              Choose a standard race or specify your own distance.
             </p>
           </div>
         </section>

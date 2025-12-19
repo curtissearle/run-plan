@@ -15,14 +15,46 @@ const runTypeEnum = z.enum([
   "Strength",
 ]);
 
-const runSchema = z.object({
-  id: z.string().optional(),
-  type: runTypeEnum,
-  distance: z.number().optional(),
-  time: z.number().optional(),
-  notes: z.string().optional(),
-  nickname: z.string().optional(),
-});
+const runSchema = z
+  .object({
+    id: z.string().optional(),
+    type: runTypeEnum,
+    measurementType: z.enum(["distance", "time"]).optional(),
+    distance: z.number().optional(),
+    time: z.number().optional(),
+    notes: z.string().optional(),
+    nickname: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // If measurementType is provided, ensure either distance or time is set (but not both)
+      if (data.measurementType === "distance") {
+        return data.distance !== undefined && data.distance !== null;
+      }
+      if (data.measurementType === "time") {
+        return data.time !== undefined && data.time !== null;
+      }
+      // If measurementType is not provided, infer from presence of distance or time
+      // For backward compatibility, allow either distance or time
+      return true;
+    },
+    {
+      message: "When measurementType is 'distance', distance must be set. When measurementType is 'time', time must be set.",
+    }
+  )
+  .transform((data) => {
+    // Backward compatibility: infer measurementType from presence of distance or time
+    if (!data.measurementType) {
+      if (data.distance !== undefined && data.distance !== null) {
+        return { ...data, measurementType: "distance" as const };
+      }
+      if (data.time !== undefined && data.time !== null) {
+        return { ...data, measurementType: "time" as const };
+      }
+    }
+    return data;
+  });
 
 // Strict day key schema – only allow valid Day values
 const dayKeySchema = z.enum(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
@@ -57,6 +89,7 @@ export const planSettingsSchema = z.object({
   raceDate: z.string(),
   raceDistance: z.string(),
   customRaceDistance: z.number().optional(),
+  unit: z.enum(["km", "miles"]).default("km"),
   trainingDays: z.array(
     z.object({
       day: z.string(),

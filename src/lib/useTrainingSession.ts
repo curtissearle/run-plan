@@ -10,6 +10,7 @@ import {
   createSchemaFromPlan,
   updateSchemaAfterEdit,
 } from "./planSchema";
+import { kmToMiles, milesToKm } from "./utils";
 
 export type TrainingStep = "configure" | "edit" | "export";
 
@@ -62,6 +63,7 @@ export function useTrainingSession(): TrainingSession {
       raceDate: values.raceDate,
       raceDistance: values.raceDistance,
       customRaceDistance: values.customRaceDistance,
+      unit: values.unit || "km",
       trainingDays: values.trainingDays.map((d) => ({
         day: d.day,
         workouts: d.workouts.map((w) => ({
@@ -175,6 +177,7 @@ export function useTrainingSession(): TrainingSession {
       raceDate: incomingSettings.raceDate || "",
       raceDistance: incomingSettings.raceDistance || "",
       customRaceDistance: incomingSettings.customRaceDistance,
+      unit: incomingSettings.unit || "km",
       trainingDays: trainingDaysArray.map((d) => {
         if (!d) {
           throw new Error(`Invalid training day: day is undefined`);
